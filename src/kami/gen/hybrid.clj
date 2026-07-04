@@ -50,7 +50,7 @@
 ;; ── body/rig (deterministic, no ML) ──────────────────────────────────
 
 (defn bare-body
-  "Calls `character/generate-character` for `base` and strips its
+  "Calls `character/generate-character-tagged` for `base` and strips its
   `\"clothing\"` mesh part. ADR-2607051130: the whole point of this
   hybrid split is that costume comes from TEXTURE (the diffusion-generated
   albedo/normal/roughness maps applied to the bare body's own `:skin`
@@ -58,17 +58,27 @@
   `kami-gen-procedural`'s kigurumi hood/bodysuit approach does — so this
   is `compose-costumed-character`'s body half, minus that geometry,
   exactly as the ADR specifies. Guaranteed-valid topology/UVs/blendshapes
-  come straight from `character`'s own generation + its own test suite (66
-  deftest forms / 17,843 assertions) — nothing about that guarantee is
+  come straight from `character`'s own generation + its own test suite (99
+  deftest forms / 53,452 assertions) — nothing about that guarantee is
   re-verified here, it's inherited.
 
+  ADR-0048 §1 follow-up: uses `generate-character-tagged` (not the bare-
+  vector `generate-character`) so every part's vertex `:position` carries
+  its `character.space` `:space` tag (`:head-local` for head/eyes/
+  eyebrows/hair, `:world` for body/clothing) all the way to
+  `kami.gen.hybrid.vrm-export/assemble-vrm`, which is exactly where the
+  ADR's motivating bug (commit 848012e — head-local vertices skin-weighted
+  as if they were world-space) happened. `skin-uv-bbox`/`nodes.clj` below
+  only ever read `:uv`, never `:position`, so tagging is transparent to
+  them.
+
   Returns `{:parts :skeleton :blendshape-targets :character-def}` — the
-  same shape `character/generate-character` returns, plus `:character-def`
-  (the resolved def, needed downstream by `kami.gen.hybrid.vrm-export` for
-  per-material PBR factors)."
+  same shape `character/generate-character-tagged` returns, plus
+  `:character-def` (the resolved def, needed downstream by
+  `kami.gen.hybrid.vrm-export` for per-material PBR factors)."
   [base]
   (let [def (base-character-def base)
-        built (character/generate-character def)]
+        built (character/generate-character-tagged def)]
     (-> built
         (update :parts (fn [parts] (vec (remove #(= "clothing" (:name %)) parts))))
         (assoc :character-def def))))

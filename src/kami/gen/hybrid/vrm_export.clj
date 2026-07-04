@@ -1,8 +1,9 @@
 (ns kami.gen.hybrid.vrm-export
-  "Body (`character/generate-character`, minus its `clothing` part) +
-  generated textures (`kami.gen.hybrid.workflow`/`kami.gen.hybrid.nodes`
-  output) -> a real `.vrm` file, via `kotoba-lang/vrm`'s data types
-  (`vrm.vrm-types`) and GLB serializer (`vrm.export/export-glb`).
+  "Body (`character/generate-character-tagged`, minus its `clothing` part —
+  see `kami.gen.hybrid/bare-body`) + generated textures
+  (`kami.gen.hybrid.workflow`/`kami.gen.hybrid.nodes` output) -> a real
+  `.vrm` file, via `kotoba-lang/vrm`'s data types (`vrm.vrm-types`) and GLB
+  serializer (`vrm.export/export-glb`).
 
   `kotoba-lang/vrm`'s own `vrm.compose`/`vrm.part` operate on ALREADY-glTF
   `VrmDocument`s (merging existing avatars) — there is no published
@@ -18,68 +19,47 @@
   (:require [character.body :as body]
             [character.material :as material]
             [character.bin :as bin]
-            [character.math :as m]
+            [character.space :as cspace]
             [vrm.gltf-types :as gt]
             [vrm.vrm-types :as vt]
             [vrm.export :as vrm-export])
   (:import [java.io File FileOutputStream]
            [java.nio.file Files Paths]))
 
-;; ── head-local parts -> world space (real bug fix, ADR-2607051130 follow-
-;; up, verified by hand-decoding an exported .vrm's own binary buffers) ──
+;; ── head-local parts -> world space, via the general tagged-point
+;; convention (ADR-0048 §1, com-junkawasaki/root) — replaces the earlier
+;; ad-hoc `to-world-space` (commit 848012e) that detected head-local parts
+;; by NAME and blindly `vec3+`'d an offset with no space check at all ──
 ;;
-;; `character/generate-character` (`character.cljc`) returns TWO different
-;; coordinate conventions mixed into one `:parts` vector, undocumented at
-;; that call site but explicit in the individual generators' own
-;; docstrings/comments: `character.body/generate-body` and `generate-
-;; clothing` bake WORLD-space positions straight into their vertices
-;; (`character.body/torso-profile`'s own docstring: "t=0 (top) is neck-bone
-;; height ... world" — its `y-fn` literally returns the same numbers
-;; `bone-world-positions` computes for `neck`/`hips`), but `character.base-
-;; mesh/generate-head`/`generate-eyes`/`generate-eyebrows` and `character.
-;; hair/generate-hair` are all HEAD-LOCAL — centred at local origin
-;; (`character.hair`'s own ns comment calls `generate-head` "a small
-;; head-LOCAL ellipsoid ... centred at local origin," and overrides
-;; `hair-gen`'s own stock `:head-center-y` from `1.43` to `0.0` specifically
-;; to match that convention).
+;; Original root cause (848012e, still accurate): `character/generate-
+;; character` mixes TWO coordinate conventions in one `:parts` vector —
+;; `character.body/generate-body`/`generate-clothing` bake WORLD-space
+;; positions in directly, but `character.base-mesh/generate-head`/
+;; `generate-eyes`/`generate-eyebrows` and `character.hair/generate-hair`
+;; are HEAD-LOCAL (centred at local origin). Feeding untranslated
+;; head-local vertices into `character.body/skin-weights` alongside
+;; genuinely world-space bone positions compared two different coordinate
+;; spaces as if they were one — a head-local eye vertex sits within ~0.08
+;; units of the WORLD origin, so `leftShoulder`/`rightShoulder` came out
+;; numerically "nearest" instead of `head`. The same untranslated positions
+;; also got written directly as the primitive's `POSITION` accessor data,
+;; silently rendering head/eyes/eyebrows/hair squashed into the chest/neck
+;; region.
 ;;
-;; `ensure-skinned` (below) already knew it needed to skin "parts other
-;; than body," but it fed their UNTRANSLATED head-local `:position`s
-;; straight into `character.body/skin-weights` alongside `bone-world-pos`
-;; (genuinely world-space, from `character.body/bone-world-positions`) —
-;; two different coordinate spaces compared as if they were one. A
-;; head-local eye vertex sits within ~0.08 units of the WORLD origin, and
-;; `leftShoulder`/`rightShoulder` (world position ~[+-0.04, 0.06, 0], much
-;; closer to the world origin than `head`'s own world position [0, 0.14,
-;; 0]) end up numerically "nearest" by raw distance — hand-verified against
-;; a real exported GLB's decoded JOINTS_0/WEIGHTS_0: eye_white/iris/pupil
-;; vertices came out ~90-100% dominantly weighted to `leftShoulder`/
-;; `rightShoulder`, and `head` did not appear in an eye vertex's top-4
-;; joints at all. The SAME untranslated positions were then also written
-;; directly as the primitive's final `POSITION` accessor data — since an
-;; un-parented skinned mesh node's rest-pose vertex position IS its
-;; rendered world position (skinning only deforms away from bind pose; at
-;; bind pose every joint matrix is identity by construction), this also
-;; silently rendered the head/eyes/eyebrows/hair squashed down into the
-;; chest/neck region instead of sitting at the head's actual world height.
-;;
-;; `to-world-space` (below) fixes the root cause once, before either
-;; problem can happen: translate every head-local part's vertices by the
-;; `head` bone's OWN world position (from `bone-world-positions`) so every
-;; part's `:position` lives in the SAME (world) space before skin-weighting
-;; or GLB serialization ever sees it — not a per-symptom patch to
-;; `skin-weights`' distance metric.
-
-(def ^:private head-local-part-names
-  "The exact set of `:name`s `character/generate-character` produces from
-  the HEAD-LOCAL generators (`character.base-mesh/generate-head`/
-  `generate-eyes`/`generate-eyebrows`, `character.hair/generate-hair`) —
-  see the namespace comment above for why these (and only these) need
-  translating to world space. `\"body\"`/`\"clothing\"` (`character.body`'s
-  generators) are deliberately excluded: those already bake world-space
-  positions in at generation time."
-  #{"head" "eye_white_l" "eye_white_r" "iris_l" "iris_r"
-    "pupil_l" "pupil_r" "eyebrow_l" "eyebrow_r" "hair"})
+;; ADR-0048 follow-up (this version): `kami.gen.hybrid/bare-body` now calls
+;; `character/generate-character-tagged`, so every part arriving here
+;; already carries a `character.space` `:space` tag (`:head-local` or
+;; `:world`) on both the part itself and every vertex `:position`. Instead
+;; of a downstream consumer (this namespace) re-deriving "which parts are
+;; head-local" by NAME — a hardcoded set that a future `character` change
+;; could silently invalidate — `to-world-space` now trusts `character`'s
+;; OWN tag (`character` is the authority on its own output spaces) and
+;; converts via `character.space/head-local->world`, which itself asserts
+;; (via `kotoba.lang.spec`) that a point claiming `:head-local` really is
+;; shaped like a tagged point before converting. A part with a missing or
+;; unrecognized `:space` tag throws here rather than silently skinning it
+;; in whatever space it happens to already be in — the exact failure mode
+;; a future format/generator change could otherwise reintroduce.
 
 (defn- head-bone-world-position
   "The `head` bone's world-space rest position (from `bone-world-pos`,
@@ -93,14 +73,22 @@
                      {:bone-names (mapv :name bones)}))))
 
 (defn- to-world-space
-  "Translates `part`'s vertex `:position`s by `head-world-pos` if `part` is
-  one of `head-local-part-names`, else returns `part` unchanged. See the
-  namespace comment above."
+  "Converts `part` (a `character.space`-TAGGED MeshPart — see the namespace
+  comment above) to plain, bare-`[x y z]`-vector `:position`s in WORLD
+  space, ready for the space-agnostic skin-weights/GLB-export machinery
+  below. `:head-local` parts are translated by `head-world-pos` via
+  `character.space/head-local->world` (asserted en route); `:world` parts
+  are passed through (already correct, just untagged). Any other/missing
+  `:space` throws — no silent fallback to \"assume it's already right\"."
   [part head-world-pos]
-  (if (contains? head-local-part-names (:name part))
-    (update part :vertices
-            (fn [vs] (mapv (fn [v] (update v :position #(m/vec3+ % head-world-pos))) vs)))
-    part))
+  (case (:space part)
+    :head-local (cspace/untag-part :world
+                                    (cspace/retag-part :world
+                                                        (partial cspace/head-local->world head-world-pos)
+                                                        part))
+    :world (cspace/untag-part :world part)
+    (throw (ex-info "vrm-export/to-world-space: part has no recognized :space tag"
+                     {:part-name (:name part) :space (:space part)}))))
 
 ;; ── skinning every part (not just "body") ──────────────────────────────
 
