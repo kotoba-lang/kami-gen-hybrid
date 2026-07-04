@@ -1,0 +1,26 @@
+{:paths ["src"]
+ ;; Three `:local/root` deps per ADR-2607051130: `character` (deterministic
+ ;; body/rig), `comfyui-clj` (texture node-graph execution engine),
+ ;; `vrm` (final .vrm assembly/export). comfyui-clj itself depends on
+ ;; langchain-clj (git dep, resolved transitively); the :dev alias below
+ ;; overrides that to a local checkout for offline workspace development,
+ ;; same convention as the "actor" repos (CLAUDE.md Actors section).
+ :deps {io.github.kotoba-lang/character
+        {:local/root "../character"}
+        io.github.com-junkawasaki/comfyui-clj
+        {:local/root "../../com-junkawasaki/comfyui-clj"}
+        io.github.kotoba-lang/vrm
+        {:local/root "../vrm"}}
+ :aliases
+ {:dev {:override-deps
+        {io.github.com-junkawasaki/langchain-clj
+         {:local/root "../../com-junkawasaki/langchain-clj"}}}
+  :test {:extra-paths ["test"]
+         :extra-deps {io.github.cognitect-labs/test-runner
+                      {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts ["-m" "cognitect.test-runner"]
+         :exec-fn cognitect.test-runner.api/test}
+  :lint {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2024.11.14"}}
+         :main-opts    ["-m" "clj-kondo.main"
+                        "--lint" "src" "test"
+                        "--fail-level" "error"]}}}
