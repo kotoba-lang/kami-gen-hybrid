@@ -6,7 +6,10 @@
             [kami.gen.hybrid.workflow :as hwf]
             [kami.gen.hybrid.nodes :as nodes]
             [kami.gen.hybrid.texture :as texture]
-            [vrm.glb :as glb])
+            [character.bin :as bin]
+            [vrm.glb :as glb]
+            [vrm.json :as json]
+            [vrm.gltf-types :as gt])
   (:import [javax.imageio ImageIO]
            [java.io File]))
 
@@ -14,6 +17,60 @@
   (let [f (File. (str (System/getProperty "java.io.tmpdir") "/kami-gen-hybrid-test-" (System/nanoTime)))]
     (.mkdirs f)
     (.getAbsolutePath f)))
+
+;; ── real GLB skin-weight decode (regression for the coordinate-space bug
+;; fixed in `kami.gen.hybrid.vrm-export/to-world-space`) ──────────────────
+;;
+;; This decodes the ACTUAL exported GLB bytes the same way a real glTF/VRM
+;; viewer would (round-tripping through `vrm.glb/parse-glb` + `vrm.json/
+;; parse`, not inspecting the pre-serialization in-memory data structure),
+;; against this exporter's own known fixed buffer layout
+;; (`vrm_export.clj`'s `append-primitive`: JOINTS_0 = 4x u8 @ byteOffset 0,
+;; WEIGHTS_0 = 4x f32 @ byteOffset 4, sharing one bufferView with
+;; `:byteStride 20`) — not a general-purpose glTF accessor reader.
+
+(defn- decode-vertex-skin
+  "`[joint-idx0..3] [weight0..3]` for vertex `vi` of the JOINTS_0/WEIGHTS_0
+  accessor pair `joints-acc`/`weights-acc` (indices into `(:accessors
+  gltf)`), read directly out of the raw binary buffer `buf` (byte-int
+  vector)."
+  [gltf buf joints-acc weights-acc vi]
+  (let [ja (get-in gltf [:accessors joints-acc])
+        wa (get-in gltf [:accessors weights-acc])
+        bview (get-in gltf [:bufferViews (:bufferView ja)])
+        stride (:byteStride bview)
+        row (+ (:byteOffset bview 0) (* vi stride))
+        j-start (+ row (:byteOffset ja 0))
+        w-start (+ row (:byteOffset wa 0))
+        c0 (bin/cursor buf)
+        [j0 c1] (bin/read-u8 (bin/seek c0 j-start))
+        [j1 c2] (bin/read-u8 c1)
+        [j2 c3] (bin/read-u8 c2)
+        [j3 _c4] (bin/read-u8 c3)
+        [w0 d1] (bin/read-f32-le (bin/seek c0 w-start))
+        [w1 d2] (bin/read-f32-le d1)
+        [w2 d3] (bin/read-f32-le d2)
+        [w3 _d4] (bin/read-f32-le d3)]
+    {:joints [j0 j1 j2 j3] :weights [w0 w1 w2 w3]}))
+
+(defn- primitive-dominant-joint-names
+  "For glTF primitive `prim`, the highest-weight joint NAME (via
+  `joint-names`, index-aligned with the skin's `:joints`) for every one of
+  its vertices."
+  [gltf buf joint-names prim]
+  (let [{:keys [JOINTS_0 WEIGHTS_0]} (:attributes prim)
+        n (:count (get-in gltf [:accessors JOINTS_0]))]
+    (vec
+     (for [vi (range n)]
+       (let [{:keys [joints weights]} (decode-vertex-skin gltf buf JOINTS_0 WEIGHTS_0 vi)
+             top (apply max-key #(nth weights %) (range 4))]
+         (nth joint-names (nth joints top)))))))
+
+(defn- find-primitive-by-material [gltf material-name]
+  (let [mat-idx (first (keep-indexed (fn [i m] (when (= (:name m) material-name) i))
+                                      (:materials gltf)))]
+    (when mat-idx
+      (first (filter #(= (:material %) mat-idx) (get-in gltf [:meshes 0 :primitives]))))))
 
 ;; ── costume-prompt->workflow is well-formed per comfyui-clj's own schema ──
 
@@ -118,6 +175,68 @@
           (is (pos? (:byteLength bv)))))
       (testing "humanoid bone mapping present (hips at minimum)"
         (is (some #(= :hips (:bone %)) (get-in vrm [:doc :humanoid :human-bones])))))))
+
+;; ── real bug fix regression: eye/face/hair skin weights bind to the head,
+;; not the shoulders ────────────────────────────────────────────────────
+;;
+;; Hand-verified real bug (not hypothetical): `character/generate-
+;; character`'s head/eye/eyebrow/hair parts come out in HEAD-LOCAL
+;; coordinates (centred near the world origin), but `vrm-export.clj` used
+;; to feed those untranslated positions straight into `character.body/
+;; skin-weights` alongside genuinely WORLD-space bone positions — two
+;; different coordinate spaces compared as one. Decoding a real exported
+;; GLB's JOINTS_0/WEIGHTS_0 showed eye_white/iris/pupil vertices ~90-100%
+;; dominantly bound to `leftShoulder`/`rightShoulder` (an eye vertex's
+;; top-4 joints didn't even include `head`), and `hair` skewing toward
+;; `chest`/`neck`/`spine`/`rightShoulder`. Fixed by `to-world-space`
+;; (translates head-local parts by the `head` bone's world position before
+;; any skin-weighting or GLB serialization happens — see that fn's
+;; docstring/namespace comment in `vrm_export.clj`). This test decodes the
+;; real exported artifact and would have caught the original bug.
+(deftest eye-and-face-skin-weights-bind-to-head-not-shoulders
+  (let [out-dir (tmp-dir)
+        {:keys [vrm]} (hybrid/generate
+                       {:base :race/human
+                        :costume-prompt "penguin kigurumi, chibi, gray/black body, yellow beak"
+                        :seed 42}
+                       {:execute-texture texture/mock-execute-texture
+                        :output-dir out-dir
+                        :base-resolution 64})
+        parsed (glb/parse-glb (:glb-bytes vrm))
+        gltf (gt/gltf-document (json/parse (glb/byte-seq->string (:json parsed))))
+        buf (vec (:bin parsed))
+        joint-node-idxs (get-in gltf [:skins 0 :joints])
+        joint-names (mapv #(get-in gltf [:nodes %1 :name]) joint-node-idxs)
+        head-family #{"head" "neck" "jaw" "leftEye" "rightEye"}
+        shoulder-chest-family #{"leftShoulder" "rightShoulder" "chest" "spine" "upperChest"
+                                 "leftUpperArm" "rightUpperArm"}]
+    (testing "eye_white/iris/pupil vertices dominantly bind to a head-family joint"
+      (doseq [mat-name ["eye_white" "iris" "pupil"]]
+        (let [prim (find-primitive-by-material gltf mat-name)]
+          (is (some? prim) (str "no primitive found for material " mat-name))
+          (let [dom (primitive-dominant-joint-names gltf buf joint-names prim)]
+            (is (seq dom) (str mat-name " has no vertices"))
+            (is (every? head-family dom)
+                (str mat-name ": expected every vertex's dominant joint in " head-family
+                     ", got " (frequencies dom)))
+            (is (not-any? shoulder-chest-family dom)
+                (str mat-name ": no vertex should dominantly bind to a shoulder/chest/upper-arm "
+                     "joint, got " (frequencies dom)))))))
+    (testing "eyebrow vertices dominantly bind to a head-family joint too"
+      (let [prim (find-primitive-by-material gltf "eyebrow")]
+        (when prim ;; some hair/brow presets can be empty; only assert when present
+          (let [dom (primitive-dominant-joint-names gltf buf joint-names prim)]
+            (is (every? head-family dom) (str "eyebrow dominant joints: " (frequencies dom)))))))
+    (testing "hair is head-region-dominant overall, not chest/shoulder-dominant"
+      (let [prim (find-primitive-by-material gltf "hair")]
+        (is (some? prim) "no primitive found for material hair")
+        (let [dom (primitive-dominant-joint-names gltf buf joint-names prim)
+              n (count dom)
+              head-frac (/ (count (filter head-family dom)) (double n))]
+          (is (pos? n) "hair has no vertices")
+          (is (> head-frac 0.5)
+              (str "expected a head-family majority (>50%) for hair's dominant joints, got "
+                   (frequencies dom))))))))
 
 ;; ── real-execute-texture fails loudly without a live endpoint ─────────
 
