@@ -9,8 +9,8 @@
         {:local/root "../character"}
         io.github.com-junkawasaki/comfyui-clj
         {:local/root "../../com-junkawasaki/comfyui-clj"}
-        io.github.kotoba-lang/vrm
-        {:local/root "../vrm"}}
+        io.github.kotoba-lang/org-vrmc-vrm
+        {:local/root "../org-vrmc-vrm"}}
  :aliases
  {:dev {:override-deps
         {io.github.com-junkawasaki/langchain-clj
