@@ -1,14 +1,16 @@
 {:paths ["src"]
  ;; Three `:local/root` deps per ADR-2607051130: `character` (deterministic
- ;; body/rig), `comfyui-clj` (texture node-graph execution engine),
- ;; `vrm` (final .vrm assembly/export). comfyui-clj itself depends on
- ;; langchain-clj (git dep, resolved transitively); the :dev alias below
- ;; overrides that to a local checkout for offline workspace development,
- ;; same convention as the "actor" repos (CLAUDE.md Actors section).
+ ;; body/rig), `comfyui` (texture node-graph execution engine, renamed from
+ ;; com-junkawasaki/comfyui-clj -- GitHub-transferred to kotoba-lang), `vrm`
+ ;; (final .vrm assembly/export, renamed to org-vrmc-vrm). comfyui itself
+ ;; depends on langchain (git dep, resolved transitively); the :dev alias
+ ;; below overrides that to a local checkout for offline workspace
+ ;; development, same convention as the "actor" repos (CLAUDE.md Actors
+ ;; section).
  :deps {io.github.kotoba-lang/character
         {:local/root "../character"}
-        io.github.com-junkawasaki/comfyui-clj
-        {:local/root "../../com-junkawasaki/comfyui-clj"}
+        io.github.kotoba-lang/comfyui
+        {:local/root "../comfyui"}
         io.github.kotoba-lang/org-vrmc-vrm
         {:local/root "../org-vrmc-vrm"}}
  :aliases

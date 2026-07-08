@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: clojure -M:test (JDK ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['17', '21']
+    steps:
+      # This repo's deps.edn :deps resolves character, comfyui, and
+      # org-vrmc-vrm via :local/root sibling paths rather than git deps, so CI
+      # has to reproduce the orgs/kotoba-lang/<repo> layout instead of a
+      # single checkout. character itself transitively needs spec the same
+      # way, so that's a 4th sibling checkout.
+      - name: Checkout kami-gen-hybrid
+        uses: actions/checkout@v4
+        with:
+          path: work/orgs/kotoba-lang/kami-gen-hybrid
+
+      - name: Checkout character sibling
+        uses: actions/checkout@v4
+        with:
+          repository: kotoba-lang/character
+          path: work/orgs/kotoba-lang/character
+
+      - name: Checkout comfyui sibling
+        uses: actions/checkout@v4
+        with:
+          repository: kotoba-lang/comfyui
+          path: work/orgs/kotoba-lang/comfyui
+
+      - name: Checkout org-vrmc-vrm sibling
+        uses: actions/checkout@v4
+        with:
+          repository: kotoba-lang/org-vrmc-vrm
+          path: work/orgs/kotoba-lang/org-vrmc-vrm
+
+      - name: Checkout spec sibling (character's transitive :local/root dep)
+        uses: actions/checkout@v4
+        with:
+          repository: kotoba-lang/spec
+          path: work/orgs/kotoba-lang/spec
+
+      - name: Setup JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+
+      - name: Setup Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.1
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache m2 / gitlibs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2
+            ~/.gitlibs
+          key: ${{ runner.os }}-jdk${{ matrix.java }}-clj-${{ hashFiles('work/orgs/kotoba-lang/kami-gen-hybrid/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-jdk${{ matrix.java }}-clj-
+
+      - name: Run tests
+        working-directory: work/orgs/kotoba-lang/kami-gen-hybrid
+        run: clojure -M:test
+
+      - name: Lint (clj-kondo)
+        working-directory: work/orgs/kotoba-lang/kami-gen-hybrid
+        run: clojure -M:lint
