@@ -15,8 +15,8 @@
         {:local/root "../org-vrmc-vrm"}}
  :aliases
  {:dev {:override-deps
-        {io.github.com-junkawasaki/langchain-clj
-         {:local/root "../../com-junkawasaki/langchain-clj"}}}
+        {io.github.kotoba-lang/langchain
+         {:local/root "../langchain"}}}
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
