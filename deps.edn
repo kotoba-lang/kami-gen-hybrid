@@ -8,11 +8,14 @@
  ;; development, same convention as the "actor" repos (CLAUDE.md Actors
  ;; section).
  :deps {io.github.kotoba-lang/character
-        {:local/root "../character"}
+        {:git/url "https://github.com/kotoba-lang/character.git"
+                                     :git/sha "197410ae8fab61c2bc46c690fc6affbec046928f"}
         io.github.kotoba-lang/comfyui
-        {:local/root "../comfyui"}
+        {:git/url "https://github.com/kotoba-lang/comfyui.git"
+                                     :git/sha "d3e1c2e62eb2c4fade64583d676ea54090da115a"}
         io.github.kotoba-lang/org-vrmc-vrm
-        {:local/root "../org-vrmc-vrm"}}
+        {:git/url "https://github.com/kotoba-lang/org-vrmc-vrm.git"
+                                     :git/sha "8d8725af2feb4666cfd9573a30cc879b5fd43878"}}
  :aliases
  {:dev {:override-deps
         {io.github.kotoba-lang/langchain
