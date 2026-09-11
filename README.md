@@ -138,8 +138,8 @@ character/generate-character ──(minus "clothing" part)──> bare body/rig 
 ## Develop
 
 ```bash
-clojure -M:test     # 4 deftest / 54 assertions, all against the mock texture executor
-clojure -M:lint      # clj-kondo, errors fail
+kbb -M:test     # 4 deftest / 54 assertions, all against the mock texture executor
+kbb -M:lint      # clj-kondo, errors fail
 ```
 
 Deps (`:local/root`, sibling checkouts under this workspace):
