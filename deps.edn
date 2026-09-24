@@ -7,7 +7,11 @@
  ;; below overrides that to a local checkout for offline workspace
  ;; development, same convention as the "actor" repos (CLAUDE.md Actors
  ;; section).
- :deps {io.github.kotoba-lang/character
+ :deps {
+        ;; kotoba.test (clojure.test-compatible surface), not clojure.test --
+        ;; scripts/migrate-clojure-test-to-kotoba-test.cljk. Explicit floor.
+        io.github.kotoba-lang/test {:git/url "https://github.com/kotoba-lang/test.git"
+                                    :git/sha "2ab4885f99fd25552d380d0f6b0b54c5a72eb7ae"}io.github.kotoba-lang/character
         {:git/url "https://github.com/kotoba-lang/character.git"
                                      :git/sha "197410ae8fab61c2bc46c690fc6affbec046928f"}
         io.github.kotoba-lang/comfyui
