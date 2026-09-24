@@ -16,15 +16,14 @@
   instead of hand-built JSON strings, since `vrm.export/export-glb` expects
   that shape, plus adds the skin/joints/inverseBindMatrices/humanoid/image/
   texture data `character.export` doesn't produce at all."
-  (:require [character.body :as body]
+  (:require [kotoba.io :as kio] [character.body :as body]
             [character.material :as material]
             [character.bin :as bin]
             [character.space :as cspace]
             [vrm.gltf-types :as gt]
             [vrm.vrm-types :as vt]
             [vrm.export :as vrm-export])
-  (:import [java.io File FileOutputStream]
-           [java.nio.file Files Paths]))
+  (:import [java.io File FileOutputStream]))
 
 ;; ── head-local parts -> world space, via the general tagged-point
 ;; convention (ADR-0048 §1, com-junkawasaki/root) — replaces the earlier
@@ -233,7 +232,7 @@
 ;; ── texture image embedding ─────────────────────────────────────────────
 
 (defn- read-file-bytes [path]
-  (vec (map #(bit-and (int %) 0xFF) (Files/readAllBytes (Paths/get path (into-array String []))))))
+  (vec (map #(bit-and (int %) 0xFF) (kio/read-all-bytes path))))
 
 (defn- append-image
   [{:keys [buf buffer-views images] :as st} path]

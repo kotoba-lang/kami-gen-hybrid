@@ -24,7 +24,8 @@
     loudly rather than silently falling back to a mock."
   (:import [java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers
             HttpResponse$BodyHandlers]
-           [java.net URI]))
+           [java.net URI])
+  (:require [kotoba.bytes :as kbytes]))
 
 ;; ── deterministic pseudo-random helpers (no java.util.Random dependency on
 ;; call order — a pure hash of (prompt, seed, x, y) so output is reproducible
@@ -37,7 +38,7 @@
   but FNV keeps this independent of any host string-hash guarantee, and
   the same primitive is reused below to derive colors/patterns)."
   [s]
-  (let [bytes (.getBytes (str s) "UTF-8")]
+  (let [bytes (kbytes/utf8-bytes (str s))]
     (loop [h (unchecked-int -2128831035) i 0]
       (if (>= i (alength bytes))
         h
