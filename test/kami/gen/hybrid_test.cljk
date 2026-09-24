@@ -1,5 +1,5 @@
 (ns kami.gen.hybrid-test
-  (:require [clojure.test :refer [deftest testing is]]
+  (:require [kotoba.test :refer [deftest testing is]]
             [comfyui.node :as node]
             [comfyui.workflow :as wf]
             [kami.gen.hybrid :as hybrid]
