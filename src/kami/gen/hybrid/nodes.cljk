@@ -8,10 +8,9 @@
   file IO) close over injected host capabilities — every other node is pure
   data plumbing, same engine/inference split `comfyui.std/host-fn-node`
   documents."
-  (:require [comfyui.std :as std])
-  (:import [java.awt.image BufferedImage]
-           [java.io File]
-           [javax.imageio ImageIO]))
+  (:require [kotoba.image :as kotoba-image] [comfyui.std :as std])
+  (:import
+           [java.io File]))
 
 ;; ── pure plumbing nodes ────────────────────────────────────────────────
 
@@ -88,8 +87,8 @@
 ;; ── output node: real file IO (not "heavy compute", so not injected) ───
 
 (defn- rgba-bytes->buffered-image
-  ^BufferedImage [width height ^bytes rgba]
-  (let [img (BufferedImage. width height BufferedImage/TYPE_INT_ARGB)]
+  [width height ^bytes rgba]
+  (let [img (kotoba-image/create width height :argb)]
     (dotimes [y height]
       (dotimes [x width]
         (let [i (* 4 (+ x (* y width)))
@@ -98,7 +97,7 @@
               b (bit-and (aget rgba (+ i 2)) 0xFF)
               a (bit-and (aget rgba (+ i 3)) 0xFF)
               argb (unchecked-int (bit-or (bit-shift-left a 24) (bit-shift-left r 16) (bit-shift-left g 8) b))]
-          (.setRGB img x y argb))))
+          (kotoba-image/set-rgb! img x y argb))))
     img))
 
 (defn write-png!
@@ -107,7 +106,7 @@
   [path {:keys [width height pixels]}]
   (let [f (File. ^String path)]
     (when-let [parent (.getParentFile f)] (.mkdirs parent))
-    (ImageIO/write (rgba-bytes->buffered-image width height pixels) "png" f))
+    (kotoba-image/write-png-file! (rgba-bytes->buffered-image width height pixels) f))
   path)
 
 (defn save-texture-image-type

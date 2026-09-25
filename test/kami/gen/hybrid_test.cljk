@@ -1,5 +1,5 @@
 (ns kami.gen.hybrid-test
-  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest testing is]]
+  (:require [kotoba.image :as kotoba-image] [kotoba.io :as kio] [kotoba.test :refer [deftest testing is]]
             [comfyui.node :as node]
             [comfyui.workflow :as wf]
             [kami.gen.hybrid :as hybrid]
@@ -9,8 +9,7 @@
             [character.bin :as bin]
             [vrm.glb :as glb]
             [vrm.json :as json]
-            [vrm.gltf-types :as gt])
-  (:import [javax.imageio ImageIO]))
+            [vrm.gltf-types :as gt]))
 
 (defn- tmp-dir []
   (let [f (kio/file (str (System/getProperty "java.io.tmpdir") "/kami-gen-hybrid-test-" (System/nanoTime)))]
@@ -126,12 +125,12 @@
     (testing ":textures are real PNG files sized to the body's UV texture slot"
       (doseq [[k path] textures]
         (is (kio/exists? (kio/file ^String path)) (str k " " path))
-        (let [img (ImageIO/read (kio/file ^String path))]
-          (is (= 64 (.getWidth img)) k)
-          (is (= 64 (.getHeight img)) k)))
+        (let [img (kotoba-image/read-file (kio/file ^String path))]
+          (is (= 64 (kotoba-image/width img)) k)
+          (is (= 64 (kotoba-image/height img)) k)))
       (testing "albedo isn't a degenerate single-color image (real per-pixel checkerboard)"
-        (let [img (ImageIO/read (kio/file ^String (:albedo textures)))
-              colors (set (for [x (range 0 64 4) y (range 0 64 4)] (.getRGB img x y)))]
+        (let [img (kotoba-image/read-file (kio/file ^String (:albedo textures)))
+              colors (set (for [x (range 0 64 4) y (range 0 64 4)] (kotoba-image/get-rgb img x y)))]
           (is (> (count colors) 1) (pr-str colors)))))
 
     (testing "same seed+prompt -> same textures (deterministic mock, not random)"
@@ -143,10 +142,10 @@
                      {:execute-texture texture/mock-execute-texture
                       :output-dir out-dir2
                       :base-resolution 64})
-            img1 (ImageIO/read (kio/file ^String (get-in result [:textures :albedo])))
-            img2 (ImageIO/read (kio/file ^String (get-in result2 [:textures :albedo])))]
-        (is (= (.getRGB img1 5 5) (.getRGB img2 5 5)))
-        (is (= (.getRGB img1 40 12) (.getRGB img2 40 12)))))
+            img1 (kotoba-image/read-file (kio/file ^String (get-in result [:textures :albedo])))
+            img2 (kotoba-image/read-file (kio/file ^String (get-in result2 [:textures :albedo])))]
+        (is (= (kotoba-image/get-rgb img1 5 5) (kotoba-image/get-rgb img2 5 5)))
+        (is (= (kotoba-image/get-rgb img1 40 12) (kotoba-image/get-rgb img2 40 12)))))
 
     (testing ":vrm is a real GLB/VRM file with the textures actually attached"
       (is (some? vrm))
