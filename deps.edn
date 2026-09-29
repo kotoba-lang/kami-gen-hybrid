@@ -5,7 +5,7 @@
  ;; (final .vrm assembly/export, renamed to org-vrmc-vrm). comfyui itself
  ;; depends on langchain (git dep, resolved transitively); the :dev alias
  ;; below overrides that to a local checkout for offline workspace
- ;; development, same convention as the "actor" repos (CLAUDE.md Actors
+ ;; development, same convention as the "actor" repos (AGENTS.md Actors
  ;; section).
  :deps {
         ;; kotoba.image replaced java.awt.image.BufferedImage / javax.imageio here (2026-09-25).
